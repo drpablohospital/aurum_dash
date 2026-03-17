@@ -9,7 +9,9 @@ import numpy as np
 import time
 import uuid
 import ccxt
-import requests  # <--- AÑADIDO PARA FALLBACK DE COINGECKO
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # ============================================
 # CONFIGURACIÓN DE LA PÁGINA (TEMA EXPERIMENTAL)
@@ -167,7 +169,7 @@ st.markdown("""
         line-height: 1;
         color: #000;
     }
-    .metric-value.positive { color: #000000; }  /* Podríamos usar rojo/amarillo, pero mantenemos */
+    .metric-value.positive { color: #000000; }
     .metric-value.negative { color: #FF2D2D; }
     
     /* TABLAS */
@@ -334,37 +336,64 @@ def generate_user_id():
     return uuid.uuid4().hex
 
 # ============================================
-# FUNCIÓN MEJORADA PARA OBTENER PRECIO BTC
+# FUNCIÓN MEJORADA PARA OBTENER PRECIO BTC (CON CACHÉ Y MÚLTIPLES FUENTES)
 # ============================================
+@st.cache_data(ttl=60)  # Cachea el resultado durante 60 segundos
 def get_btc_price():
     """
-    Obtiene el precio actual de BTC/USDT.
-    Primero intenta con Binance (ccxt), si falla usa CoinGecko (API pública).
+    Obtiene el precio actual de BTC/USDT probando múltiples fuentes.
+    Cachea el resultado durante 60 segundos para no saturar las APIs.
     """
-    # --- Intento 1: Binance ---
-    try:
-        exchange = ccxt.binance({
-            'enableRateLimit': True,
-            'timeout': 30000,  # 30 segundos
-            'options': {'defaultType': 'spot'}
-        })
-        ticker = exchange.fetch_ticker('BTC/USDT')
-        return ticker['last']
-    except Exception as e:
-        # Logueamos el error en consola (útil para debugging en Render)
-        print(f"[get_btc_price] Binance error: {e}")
+    # Configura una sesión con reintentos
+    session = requests.Session()
+    retries = Retry(total=2, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+    session.mount('http://', HTTPAdapter(max_retries=retries))
 
-    # --- Intento 2: CoinGecko (fallback) ---
-    try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            return data['bitcoin']['usd']
-    except Exception as e:
-        print(f"[get_btc_price] CoinGecko error: {e}")
+    # Lista de fuentes en orden de preferencia
+    sources = [
+        {
+            'name': 'Binance',
+            'url': 'https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT',
+            'parse': lambda data: float(data['price'])
+        },
+        {
+            'name': 'CoinGecko',
+            'url': 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd',
+            'parse': lambda data: float(data['bitcoin']['usd'])
+        },
+        {
+            'name': 'Kraken',
+            'url': 'https://api.kraken.com/0/public/Ticker?pair=XBTUSD',
+            'parse': lambda data: float(data['result']['XXBTZUSD']['c'][0])
+        },
+        {
+            'name': 'CoinCap',
+            'url': 'https://api.coincap.io/v2/assets/bitcoin',
+            'parse': lambda data: float(data['data']['priceUsd'])
+        },
+        {
+            'name': 'Binance US',
+            'url': 'https://api.binance.us/api/v3/ticker/price?symbol=BTCUSDT',
+            'parse': lambda data: float(data['price'])
+        }
+    ]
 
-    # --- Si todo falla ---
+    for source in sources:
+        try:
+            response = session.get(source['url'], timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                price = source['parse'](data)
+                print(f"[get_btc_price] Usando {source['name']}: ${price}")
+                return price
+            else:
+                print(f"[get_btc_price] {source['name']} respondió {response.status_code}")
+        except Exception as e:
+            print(f"[get_btc_price] Error con {source['name']}: {e}")
+            continue
+
+    # Si todas fallan
     st.warning("PRECIO BTC · NO DISPONIBLE (FUENTES NO RESPONDEN)")
     return None
 
