@@ -4,3 +4,4 @@ plotly==5.22.0
 numpy==1.26.4
 ccxt==4.2.2
 requests==2.31.0
+urllib3==1.26.18  # o la versión que tengas, pero para compatibilidad con Retry
