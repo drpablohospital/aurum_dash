@@ -17,7 +17,7 @@ from urllib3.util.retry import Retry
 # CONFIGURACIÓN DE LA PÁGINA (TEMA EXPERIMENTAL)
 # ============================================
 st.set_page_config(
-    page_title="AURUM · BTC Futures Trading ",
+    page_title="AURUM · BTC/USDT FUTURES TRADING",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -260,6 +260,32 @@ st.markdown("""
         border-radius: 0 !important;
         font-weight: 300;
         text-transform: uppercase;
+    }
+    
+    /* FOOTER ESTILIZADO */
+    .footer-links {
+        border-top: 2px solid #000000;
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        text-align: center;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+    }
+    .footer-links a {
+        color: #000000;
+        text-decoration: none;
+        margin: 0 0.8rem;
+        font-weight: 400;
+        transition: color 0.1s;
+    }
+    .footer-links a:hover {
+        color: #FFD600;
+        text-decoration: underline;
+    }
+    .footer-links span.separator {
+        color: #CCCCCC;
+        margin: 0 0.3rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -596,11 +622,27 @@ def create_exit_reason_pie(df):
     return fig
 
 # ============================================
-# PÁGINA DE INICIO (LANDING) CON ESTÉTICA DE MUSEO
+# FUNCIONES DE LAS PÁGINAS
 # ============================================
+
+def render_footer():
+    """Muestra el footer con enlaces a las secciones y disclaimer."""
+    footer_html = """
+    <div class="footer-links">
+        <a href="?page=inicio">INICIO</a> <span class="separator">|</span>
+        <a href="?page=panel">PANEL PRINCIPAL</a> <span class="separator">|</span>
+        <a href="?page=backtest">BACKTESTING</a> <span class="separator">|</span>
+        <a href="?page=proyecciones">PROYECCIONES</a> <span class="separator">|</span>
+        <a href="?page=tracking">TRACKING</a> <span class="separator">|</span>
+        <a href="?page=trades">TRADES</a> <span class="separator">|</span>
+        <a href="?page=disclaimer">DISCLAIMER</a>
+    </div>
+    """
+    st.markdown(footer_html, unsafe_allow_html=True)
+
 def show_landing_page():
-    st.markdown("<h1>AURUM · BTC Futures Trading </h1>", unsafe_allow_html=True)
-    st.markdown("<p class='small-caption'>INVIERTE EN FUTUROS DE BTC7USDT · ESTRATEGIA AUDITABLE · WALLET TRACKER · SIMULADOR DE RIESGO</p>", unsafe_allow_html=True)
+    st.markdown("<h1>AURUM · BTC/USDT FUTURES TRADING</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='small-caption'>INVIERTE EN FUTUROS DE BTC · ESTRATEGIA AUDITABLE · WALLET TRACKER · SIMULADOR DE RIESGO</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -659,11 +701,8 @@ def show_landing_page():
     
     st.plotly_chart(create_equity_chart(df), use_container_width=True)
     
-    st.markdown("<div style='text-align: center; padding: 2rem;'><h3>EXPLORE EL SISTEMA COMPLETO</h3><p>MENÚ LATERAL · MÓDULOS INDEPENDIENTES</p></div>", unsafe_allow_html=True)
+    render_footer()
 
-# ============================================
-# FUNCIONES DE LAS PESTAÑAS (CON ESTILOS ACTUALIZADOS)
-# ============================================
 def show_dashboard(df, metrics):
     st.title("📈 PANEL PRINCIPAL")
     col1, col2, col3, col4 = st.columns(4)
@@ -678,6 +717,7 @@ def show_dashboard(df, metrics):
     colL, colR = st.columns(2)
     with colL: st.plotly_chart(create_pnl_distribution_chart(df), use_container_width=True)
     with colR: st.plotly_chart(create_exit_reason_pie(df), use_container_width=True)
+    render_footer()
 
 def show_backtesting(df, metrics):
     st.title("📜 BACKTESTING DETALLADO")
@@ -699,6 +739,7 @@ def show_backtesting(df, metrics):
         display_df['pnl_equity_pct'] = display_df['pnl_equity_pct'].round(2)
         display_df['R'] = display_df['R'].round(2)
         st.dataframe(display_df, use_container_width=True)
+    render_footer()
 
 def show_projections():
     st.title("🔮 PROYECCIÓN HISTÓRICA")
@@ -706,6 +747,7 @@ def show_projections():
     df = load_backtest_data()
     if df.empty:
         st.warning("NO HAY DATOS DE BACKTESTING")
+        render_footer()
         return
     min_date = df['entry_time'].min().date()
     max_date = df['exit_time'].max().date()
@@ -719,6 +761,7 @@ def show_projections():
         trades_after = df[df['entry_time'] >= inv_dt]
         if trades_after.empty:
             st.error("NO HAY TRADES DESPUÉS DE ESA FECHA")
+            render_footer()
             return
         first_idx = trades_after.index[0]
         if first_idx > 0:
@@ -741,6 +784,7 @@ def show_projections():
             fig = go.Figure(go.Scatter(x=df_filt['exit_time'], y=df_filt['norm'], mode='lines', line=dict(color='#000000')))
             fig.update_layout(title="EVOLUCIÓN DE LA INVERSIÓN", xaxis_title="FECHA", yaxis_title="USDT", height=400, paper_bgcolor='#FFFFFF', plot_bgcolor='#FFFFFF', font_color='#000000')
             st.plotly_chart(fig, use_container_width=True)
+    render_footer()
 
 def show_tracking():
     st.title("💰 TRACKING DE FONDOS")
@@ -802,6 +846,7 @@ def show_tracking():
                 st.dataframe(pd.DataFrame(summary['history']), use_container_width=True)
             else:
                 st.info("NO HAY MOVIMIENTOS")
+    render_footer()
 
 def show_trades(df):
     st.title("📋 HISTÓRICO DE TRADES")
@@ -818,18 +863,79 @@ def show_trades(df):
         st.dataframe(display[['entry_time', 'exit_time', 'side', 'exit_reason', 'R', 'pnl_equity_pct']], use_container_width=True, height=600)
     else:
         st.warning("NO HAY DATOS DE TRADES")
+    render_footer()
+
+def show_disclaimer():
+    st.title("📜 AVISO LEGAL · DISCLAIMER")
+    
+    disclaimer_text = """
+    <div style="border: 2px solid #000000; padding: 2rem; margin: 2rem 0;">
+        <p style="font-weight: 700; font-size: 1.2rem;">INFORMACIÓN GENERAL</p>
+        <p>El sistema AURUM es una herramienta de análisis y seguimiento de estrategias de trading de futuros de Bitcoin. Toda la información proporcionada en este sitio web, incluyendo datos históricos, proyecciones, gráficos y métricas, tiene fines exclusivamente educativos e informativos. No constituye asesoramiento financiero, de inversión ni de trading.</p>
+        
+        <p style="font-weight: 700; font-size: 1.2rem; margin-top: 2rem;">RENDIMIENTO PASADO</p>
+        <p>Los resultados de backtesting mostrados corresponden a datos históricos y no garantizan resultados futuros. El rendimiento pasado de una estrategia no es indicador fiable de resultados futuros. Las condiciones del mercado pueden cambiar drásticamente.</p>
+        
+        <p style="font-weight: 700; font-size: 1.2rem; margin-top: 2rem;">RIESGO DEL TRADING</p>
+        <p>El trading con futuros de criptomonedas implica un alto nivel de riesgo y puede no ser adecuado para todos los inversores. El apalancamiento puede amplificar tanto las ganancias como las pérdidas. Existe la posibilidad de perder la totalidad del capital invertido. No opere con dinero que no pueda permitirse perder.</p>
+        
+        <p style="font-weight: 700; font-size: 1.2rem; margin-top: 2rem;">RESPONSABILIDAD</p>
+        <p>Los creadores, desarrolladores y colaboradores de AURUM no se hacen responsables de ninguna pérdida financiera, daño o perjuicio derivado del uso de esta herramienta o de la información contenida en ella. El usuario asume toda la responsabilidad por sus decisiones de inversión y trading.</p>
+        
+        <p style="font-weight: 700; font-size: 1.2rem; margin-top: 2rem;">MARCO LEGAL MEXICANO</p>
+        <p>Este sistema se proporciona "tal cual", sin garantías de ningún tipo, expresas o implícitas. De acuerdo con la legislación mexicana (Ley del Mercado de Valores, Código Civil Federal, Ley Federal de Protección al Consumidor), el uso de esta herramienta es bajo su propio riesgo. No estamos registrados como asesores de inversión ante la Comisión Nacional Bancaria y de Valores (CNBV).</p>
+        
+        <p style="margin-top: 2rem;">Al utilizar este dashboard, usted acepta los términos aquí expresados.</p>
+    </div>
+    """
+    st.markdown(disclaimer_text, unsafe_allow_html=True)
+    render_footer()
 
 # ============================================
 # INTERFAZ PRINCIPAL
 # ============================================
 def main():
+    # Manejo de parámetros de consulta para navegación directa desde footer
+    params = st.query_params
+    if "page" in params:
+        page_param = params["page"][0] if isinstance(params["page"], list) else params["page"]
+        # Mapeo de parámetros a nombres de opción del menú
+        page_map = {
+            "inicio": "🏠 INICIO",
+            "panel": "📈 PANEL PRINCIPAL",
+            "backtest": "📜 BACKTESTING",
+            "proyecciones": "🔮 PROYECCIONES",
+            "tracking": "💰 TRACKING",
+            "trades": "📋 TRADES",
+            "disclaimer": "DISCLAIMER"  # caso especial, no en menú
+        }
+        if page_param in page_map:
+            st.session_state.menu = page_map[page_param]
+            # Limpiar parámetros para evitar que se queden en la URL
+            st.query_params.clear()
+            st.rerun()
+        elif page_param == "disclaimer":
+            # Para disclaimer, no cambiamos menú, solo lo manejamos aparte
+            st.session_state.show_disclaimer = True
+            st.query_params.clear()
+            st.rerun()
+
+    # Inicializar estado del menú si no existe
+    if "menu" not in st.session_state:
+        st.session_state.menu = "🏠 INICIO"
+    if "show_disclaimer" not in st.session_state:
+        st.session_state.show_disclaimer = False
+
     with st.sidebar:
         st.markdown("<h1 style='color: #FFD600;'>AURUM</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #FFD600;'>Smart Strategy</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #FFFFFF;'>SISTEMA EN PROCESO</p>", unsafe_allow_html=True)
         st.markdown("---")
+        
+        # Cargar datos solo si es necesario (para el sidebar)
         df = load_backtest_data()
         metrics = calculate_metrics(df)
         state = load_state()
+        
         st.markdown("<h3 style='color: #FFFFFF;'>📡 ESTADO DEL BOT</h3>", unsafe_allow_html=True)
         if state.get('paused'):
             st.warning("🔴 PAUSADO")
@@ -843,20 +949,27 @@ def main():
         st.metric("WIN RATE", f"{metrics.get('win_rate', 0):.1f}%")
         st.metric("PROFIT FACTOR", f"{metrics.get('profit_factor', 0):.2f}")
         st.markdown("---")
-        menu = ["🏠 INICIO", "📈 PANEL PRINCIPAL", "📜 BACKTESTING", "🔮 PROYECCIONES", "💰 TRACKING", "📋 TRADES"]
-        choice = st.radio("NAVEGACIÓN", menu, label_visibility="collapsed")
-    
-    if choice == "🏠 INICIO":
+        
+        # Menú lateral
+        menu_options = ["🏠 INICIO", "📈 PANEL PRINCIPAL", "📜 BACKTESTING", "🔮 PROYECCIONES", "💰 TRACKING", "📋 TRADES"]
+        st.radio("NAVEGACIÓN", menu_options, key="menu", label_visibility="collapsed")
+
+    # Mostrar la página correspondiente
+    if st.session_state.show_disclaimer:
+        show_disclaimer()
+        # Resetear flag después de mostrar
+        st.session_state.show_disclaimer = False
+    elif st.session_state.menu == "🏠 INICIO":
         show_landing_page()
-    elif choice == "📈 PANEL PRINCIPAL":
+    elif st.session_state.menu == "📈 PANEL PRINCIPAL":
         show_dashboard(df, metrics)
-    elif choice == "📜 BACKTESTING":
+    elif st.session_state.menu == "📜 BACKTESTING":
         show_backtesting(df, metrics)
-    elif choice == "🔮 PROYECCIONES":
+    elif st.session_state.menu == "🔮 PROYECCIONES":
         show_projections()
-    elif choice == "💰 TRACKING":
+    elif st.session_state.menu == "💰 TRACKING":
         show_tracking()
-    elif choice == "📋 TRADES":
+    elif st.session_state.menu == "📋 TRADES":
         show_trades(df)
 
 if __name__ == "__main__":
