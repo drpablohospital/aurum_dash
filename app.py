@@ -7,6 +7,8 @@ import os
 from datetime import datetime
 import numpy as np
 import time
+import uuid
+import ccxt
 
 # ============================================
 # CONFIGURACIÓN DE LA PÁGINA (TEMA OSCURO PROFESIONAL)
@@ -72,9 +74,10 @@ CAPITAL_LOG_FILE = "capital_log.json"
 BACKTEST_FILE = "backtest.csv"
 STATE_FILE = "state.json"
 CONFIG_FILE = "config.json"
+USERS_FILE = "users_data.json"          # Archivo para almacenar usuarios
 
 # ============================================
-# FUNCIONES DE CARGA DE DATOS
+# FUNCIONES DE CARGA DE DATOS (BACKTEST)
 # ============================================
 @st.cache_data
 def load_backtest_data():
@@ -133,6 +136,219 @@ def load_state():
     except:
         pass
     return {}
+
+# ============================================
+# FUNCIONES DE TRACKING DE USUARIOS (NUEVAS)
+# ============================================
+def load_users():
+    """Carga el diccionario de usuarios desde JSON."""
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_users(users):
+    """Guarda el diccionario de usuarios."""
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f, indent=2)
+
+def generate_user_id():
+    """Genera un ID único aleatorio."""
+    return uuid.uuid4().hex
+
+def get_btc_price():
+    """Obtiene el precio actual de BTC/USDT desde Binance."""
+    try:
+        exchange = ccxt.binance({'enableRateLimit': True})
+        ticker = exchange.fetch_ticker('BTC/USDT')
+        return ticker['last']
+    except Exception as e:
+        st.warning(f"No se pudo obtener precio BTC: {e}")
+        return None
+
+def create_user():
+    """Crea un nuevo usuario con estructura inicial vacía."""
+    user_id = generate_user_id()
+    users = load_users()
+    users[user_id] = {
+        "id": user_id,
+        "history": [],
+        "balances": {
+            "aurum": 0.0,
+            "reserve": 0.0,
+            "btc": 0.0
+        },
+        "dca_orders": [
+            {"price": 50000, "usdt_allocated": 0.0, "btc_purchased": 0.0, "executed": False},
+            {"price": 35000, "usdt_allocated": 0.0, "btc_purchased": 0.0, "executed": False},
+            {"price": 20000, "usdt_allocated": 0.0, "btc_purchased": 0.0, "executed": False}
+        ],
+        "total_usdt_invested": 0.0
+    }
+    save_users(users)
+    return user_id
+
+def process_dca_orders(user_data, btc_price):
+    """Ejecuta órdenes DCA pendientes si el precio actual es menor o igual al límite."""
+    if btc_price is None:
+        return user_data
+    for order in user_data["dca_orders"]:
+        if not order["executed"] and btc_price <= order["price"]:
+            # Comprar BTC
+            btc_bought = order["usdt_allocated"] / order["price"]
+            user_data["balances"]["btc"] += btc_bought
+            order["btc_purchased"] = btc_bought
+            order["executed"] = True
+            order["usdt_allocated"] = 0.0  # ya no hay USDT asignado
+    return user_data
+
+def process_reserve_condition(user_data, btc_price):
+    """Si BTC <= 14000, usar toda la reserva para comprar BTC."""
+    if btc_price is None:
+        return user_data
+    if btc_price <= 14000 and user_data["balances"]["reserve"] > 0:
+        btc_bought = user_data["balances"]["reserve"] / btc_price
+        user_data["balances"]["btc"] += btc_bought
+        user_data["balances"]["reserve"] = 0.0
+        # Registrar la operación (opcional)
+        user_data["history"].append({
+            "type": "compra_reserva",
+            "amount": btc_bought,
+            "price": btc_price,
+            "date": datetime.now().isoformat()
+        })
+    return user_data
+
+def register_income(user_id, amount_usdt):
+    """Registra un ingreso y distribuye según reglas."""
+    users = load_users()
+    if user_id not in users:
+        return False, "Usuario no encontrado"
+
+    user = users[user_id]
+
+    # Actualizar historial
+    user["history"].append({
+        "type": "ingreso",
+        "amount": amount_usdt,
+        "date": datetime.now().isoformat()
+    })
+
+    # Distribución
+    aurum_part = amount_usdt * 0.25
+    dca_part = amount_usdt * 0.5
+    reserve_part = amount_usdt * 0.25
+
+    # Asignar a balances
+    user["balances"]["aurum"] += aurum_part
+    user["balances"]["reserve"] += reserve_part
+
+    # Asignar a órdenes DCA (proporciones)
+    proportions = [0.15, 0.35, 0.50]  # 15%, 35%, 50%
+    for i, order in enumerate(user["dca_orders"]):
+        alloc = dca_part * proportions[i]
+        order["usdt_allocated"] += alloc
+
+    user["total_usdt_invested"] += amount_usdt
+
+    # Intentar ejecutar órdenes DCA y reserva con precio actual
+    btc_price = get_btc_price()
+    if btc_price:
+        user = process_dca_orders(user, btc_price)
+        user = process_reserve_condition(user, btc_price)
+
+    users[user_id] = user
+    save_users(users)
+    return True, "Ingreso registrado correctamente"
+
+def register_withdraw(user_id, amount_usdt):
+    """Registra un egreso, restando primero de reserva, luego aurum, luego BTC."""
+    users = load_users()
+    if user_id not in users:
+        return False, "Usuario no encontrado"
+
+    user = users[user_id]
+    btc_price = get_btc_price()
+    if btc_price is None:
+        return False, "No se puede obtener precio BTC para calcular egreso"
+
+    # Calcular valor total actual
+    total_value = (user["balances"]["aurum"] +
+                   user["balances"]["reserve"] +
+                   user["balances"]["btc"] * btc_price)
+
+    if amount_usdt > total_value:
+        return False, f"Saldo insuficiente. Disponible: ${total_value:.2f}"
+
+    # Restar de reserva primero
+    remaining = amount_usdt
+    if user["balances"]["reserve"] >= remaining:
+        user["balances"]["reserve"] -= remaining
+        remaining = 0
+    else:
+        remaining -= user["balances"]["reserve"]
+        user["balances"]["reserve"] = 0
+
+        # Luego de aurum
+        if user["balances"]["aurum"] >= remaining:
+            user["balances"]["aurum"] -= remaining
+            remaining = 0
+        else:
+            remaining -= user["balances"]["aurum"]
+            user["balances"]["aurum"] = 0
+
+            # Finalmente vender BTC
+            if remaining > 0:
+                btc_to_sell = remaining / btc_price
+                if user["balances"]["btc"] >= btc_to_sell:
+                    user["balances"]["btc"] -= btc_to_sell
+                    remaining = 0
+                else:
+                    # No debería ocurrir por la validación inicial, pero por si acaso
+                    return False, "Error inesperado en cálculo de egreso"
+
+    # Registrar en historial
+    user["history"].append({
+        "type": "egreso",
+        "amount": amount_usdt,
+        "date": datetime.now().isoformat()
+    })
+    user["total_usdt_invested"] -= amount_usdt
+
+    users[user_id] = user
+    save_users(users)
+    return True, f"Egreso de ${amount_usdt:.2f} realizado"
+
+def get_user_summary(user_id):
+    """Obtiene resumen actualizado de un usuario (con precios actuales)."""
+    users = load_users()
+    if user_id not in users:
+        return None
+    user = users[user_id]
+    btc_price = get_btc_price()
+    if btc_price:
+        user = process_dca_orders(user, btc_price)
+        user = process_reserve_condition(user, btc_price)
+        # Guardar cambios después de ejecutar órdenes
+        users[user_id] = user
+        save_users(users)
+
+    # Calcular valor total
+    total_usdt = (user["balances"]["aurum"] +
+                  user["balances"]["reserve"] +
+                  user["balances"]["btc"] * btc_price if btc_price else 0)
+
+    return {
+        "id": user_id,
+        "aurum": user["balances"]["aurum"],
+        "reserve": user["balances"]["reserve"],
+        "btc": user["balances"]["btc"],
+        "btc_price": btc_price,
+        "total_usdt": total_usdt,
+        "dca_orders": user["dca_orders"],
+        "history": user["history"],
+        "total_invested": user["total_usdt_invested"]
+    }
 
 # ============================================
 # FUNCIONES DE MÉTRICAS
@@ -415,18 +631,15 @@ def show_backtesting(df, metrics):
     with col3:
         st.metric("Trades Perdedores", len(df[df['pnl_equity_pct'] < 0]) if not df.empty else 0)
 
-    # Distribución por razón de salida
+    # Distribución por razón de salida (usamos st.table para evitar error de React)
     if metrics.get('exit_reason_counts'):
         st.subheader("Distribución por Razón de Salida")
-        # Crear una copia explícita y asegurar tipos de datos simples
         reason_data = metrics['exit_reason_counts'].copy()
         reason_df = pd.DataFrame({
             'Razón': list(reason_data.keys()),
             'Cantidad': list(reason_data.values())
         })
-        # Ordenar por cantidad descendente para mejor visualización
         reason_df = reason_df.sort_values('Cantidad', ascending=False).reset_index(drop=True)
-        # Mostrar con st.table en lugar de st.dataframe (más simple, menos reactivo)
         st.table(reason_df)
 
     # Tabla de trades
@@ -477,7 +690,6 @@ def show_projections():
         investment_datetime = pd.Timestamp(investment_date).tz_localize('UTC')
 
         # Encontrar el índice del primer trade después de la fecha de inversión
-        # (asumimos que la inversión se hace justo antes de ese trade)
         trades_after = df[df['entry_time'] >= investment_datetime]
 
         if trades_after.empty:
@@ -521,9 +733,9 @@ def show_projections():
         # Filtrar trades desde la fecha de inversión
         df_filtered = df[df['entry_time'] >= investment_datetime].copy()
         if not df_filtered.empty:
-            # Normalizar la curva para que empiece en 1 (o en initial_amount)
+            # Normalizar la curva para que empiece en initial_amount
             df_filtered['normalized_equity'] = df_filtered['cumulative_equity'] / equity_before * initial_amount
-            
+
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=df_filtered['exit_time'],
@@ -551,43 +763,97 @@ def show_projections():
 
 def show_tracking():
     st.title("💰 Tracking de Fondos")
-    st.info("Funcionalidad de tracking en desarrollo. Por ahora puedes ver el archivo JSON.")
 
-    if os.path.exists(CAPITAL_LOG_FILE):
-        with open(CAPITAL_LOG_FILE, 'r') as f:
-            data = json.load(f)
-        st.json(data)
-    else:
-        st.write("No hay datos de tracking. Se creará un archivo al registrar movimientos.")
+    # Inicializar estado de sesión para el user_id actual
+    if "tracking_user_id" not in st.session_state:
+        st.session_state.tracking_user_id = None
 
-        # Formulario simple para registrar
-        with st.form("movement_form"):
-            movement_type = st.selectbox("Tipo", ["Depósito", "Retiro"])
-            amount = st.number_input("Cantidad (USDT)", min_value=0.0, value=100.0)
-            note = st.text_input("Nota")
-            submitted = st.form_submit_button("Registrar")
+    col1, col2 = st.columns(2)
 
-            if submitted:
-                # Crear estructura inicial
-                data = {
-                    "deposits": [],
-                    "withdrawals": [],
-                    "history": []
-                }
-                movement = {
-                    "date": datetime.now().isoformat(),
-                    "amount": amount,
-                    "note": note
-                }
-                if movement_type == "Depósito":
-                    data["deposits"].append(movement)
+    with col1:
+        st.subheader("🔑 Identificación")
+        # Generar nuevo usuario
+        if st.button("🆕 Generar nuevo usuario"):
+            new_id = create_user()
+            st.session_state.tracking_user_id = new_id
+            st.success(f"Usuario creado con ID: {new_id}")
+            st.info("¡Guarda este ID para acceder después!")
+
+        # Ingresar ID existente
+        input_id = st.text_input("O ingresar ID existente:", value=st.session_state.tracking_user_id or "")
+        if st.button("Cargar usuario"):
+            users = load_users()
+            if input_id in users:
+                st.session_state.tracking_user_id = input_id
+                st.success("Usuario cargado")
+            else:
+                st.error("ID no encontrado")
+
+    # Si hay un usuario activo, mostrar sus datos
+    if st.session_state.tracking_user_id:
+        user_id = st.session_state.tracking_user_id
+        summary = get_user_summary(user_id)
+
+        if summary:
+            with col2:
+                st.subheader("📊 Resumen actual")
+                btc_price = summary['btc_price']
+                if btc_price:
+                    st.metric("Precio BTC", f"${btc_price:,.2f}")
                 else:
-                    data["withdrawals"].append(movement)
+                    st.warning("Precio BTC no disponible")
 
-                with open(CAPITAL_LOG_FILE, 'w') as f:
-                    json.dump(data, f, indent=2)
-                st.success("Movimiento registrado!")
-                st.rerun()
+                st.metric("Aurum (USDT)", f"${summary['aurum']:,.2f}")
+                st.metric("Reserva (USDT)", f"${summary['reserve']:,.2f}")
+                st.metric("BTC acumulado", f"{summary['btc']:.6f}")
+                st.metric("Valor total (USDT)", f"${summary['total_usdt']:,.2f}")
+                st.metric("Total invertido (neto)", f"${summary['total_invested']:,.2f}")
+
+            # Acciones: ingreso y egreso
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("💰 Registrar ingreso")
+                income_amount = st.number_input("Cantidad (USDT)", min_value=0.0, value=100.0, key="income")
+                if st.button("Registrar ingreso"):
+                    success, msg = register_income(user_id, income_amount)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+            with col2:
+                st.subheader("💸 Registrar egreso")
+                withdraw_amount = st.number_input("Cantidad (USDT)", min_value=0.0, value=10.0, key="withdraw")
+                if st.button("Registrar egreso"):
+                    success, msg = register_withdraw(user_id, withdraw_amount)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+            # Mostrar órdenes DCA
+            st.markdown("---")
+            st.subheader("📈 Órdenes DCA")
+            dca_df = pd.DataFrame(summary['dca_orders'])
+            if not dca_df.empty:
+                dca_df['estado'] = dca_df['executed'].apply(lambda x: "✅ Ejecutada" if x else "⏳ Pendiente")
+                dca_df['USDT asignado'] = dca_df['usdt_allocated'].round(2)
+                dca_df['BTC comprado'] = dca_df['btc_purchased'].round(6)
+                st.dataframe(dca_df[['price', 'USDT asignado', 'BTC comprado', 'estado']], use_container_width=True)
+
+            # Mostrar historial
+            st.markdown("---")
+            st.subheader("📋 Historial de movimientos")
+            if summary['history']:
+                hist_df = pd.DataFrame(summary['history'])
+                st.dataframe(hist_df, use_container_width=True)
+            else:
+                st.info("No hay movimientos registrados.")
+        else:
+            st.error("Error al cargar datos del usuario")
 
 def show_trades(df):
     st.title("📋 Histórico de Trades")
