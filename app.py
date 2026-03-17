@@ -17,7 +17,7 @@ from urllib3.util.retry import Retry
 # CONFIGURACIÓN DE LA PÁGINA (TEMA EXPERIMENTAL)
 # ============================================
 st.set_page_config(
-    page_title="AURUM · BTC/USDT FUTURES TRADING",
+    page_title="AURUM · BTC Futures Trading ",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -599,16 +599,16 @@ def create_exit_reason_pie(df):
 # PÁGINA DE INICIO (LANDING) CON ESTÉTICA DE MUSEO
 # ============================================
 def show_landing_page():
-    st.markdown("<h1>AURUM · BTC/USDT FUTURES TRADING</h1>", unsafe_allow_html=True)
-    st.markdown("<p class='small-caption'>INVIERTE EN FUTUROS DE BTC · ESTRATEGIA AUDITABLE · WALLET TRACKER · SIMULADOR DE RIESGO</p>", unsafe_allow_html=True)
+    st.markdown("<h1>AURUM · BTC Futures Trading </h1>", unsafe_allow_html=True)
+    st.markdown("<p class='small-caption'>INVIERTE EN FUTUROS DE BTC7USDT · ESTRATEGIA AUDITABLE · WALLET TRACKER · SIMULADOR DE RIESGO</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-        st.markdown("<a href='https://t.me/+-7Ro_KtGxQ8xMzUx' target='_blank' class='telegram-link'>📡 ACCESO AL CANAL</a>", unsafe_allow_html=True)
+        st.markdown("<a href='https://t.me/+-7Ro_KtGxQ8xMzUx' target='_blank' class='telegram-link'>📡 BOT DE SEÑALES (TELEGRAM)</a>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
     
-    st.markdown("<div class='construction-ribbon'>⚡ PROTOTIPO EN DESARROLLO ⚡</div>", unsafe_allow_html=True)
+    st.markdown("<div class='construction-ribbon'>⚡</div>", unsafe_allow_html=True)
     
     st.markdown("<h2>FUNDAMENTOS DE LA ESTRATEGIA</h2>", unsafe_allow_html=True)
     colA, colB = st.columns(2)
@@ -825,7 +825,7 @@ def show_trades(df):
 def main():
     with st.sidebar:
         st.markdown("<h1 style='color: #FFD600;'>AURUM</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='color: #FFFFFF;'>SISTEMA EN PROCESO</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #FFD600;'>Smart Strategy</p>", unsafe_allow_html=True)
         st.markdown("---")
         df = load_backtest_data()
         metrics = calculate_metrics(df)
