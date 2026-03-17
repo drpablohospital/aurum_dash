@@ -9,12 +9,13 @@ import numpy as np
 import time
 import uuid
 import ccxt
+import requests  # <--- AÑADIDO PARA FALLBACK DE COINGECKO
 
 # ============================================
 # CONFIGURACIÓN DE LA PÁGINA (TEMA EXPERIMENTAL)
 # ============================================
 st.set_page_config(
-    page_title="AURUM · SISTEMA EN PROCESO",
+    page_title="AURUM · BTC/USDT FUTURES TRADING",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -332,14 +333,40 @@ def save_users(users):
 def generate_user_id():
     return uuid.uuid4().hex
 
+# ============================================
+# FUNCIÓN MEJORADA PARA OBTENER PRECIO BTC
+# ============================================
 def get_btc_price():
+    """
+    Obtiene el precio actual de BTC/USDT.
+    Primero intenta con Binance (ccxt), si falla usa CoinGecko (API pública).
+    """
+    # --- Intento 1: Binance ---
     try:
-        exchange = ccxt.binance({'enableRateLimit': True})
+        exchange = ccxt.binance({
+            'enableRateLimit': True,
+            'timeout': 30000,  # 30 segundos
+            'options': {'defaultType': 'spot'}
+        })
         ticker = exchange.fetch_ticker('BTC/USDT')
         return ticker['last']
     except Exception as e:
-        st.warning("PRECIO BTC · NO DISPONIBLE")
-        return None
+        # Logueamos el error en consola (útil para debugging en Render)
+        print(f"[get_btc_price] Binance error: {e}")
+
+    # --- Intento 2: CoinGecko (fallback) ---
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return data['bitcoin']['usd']
+    except Exception as e:
+        print(f"[get_btc_price] CoinGecko error: {e}")
+
+    # --- Si todo falla ---
+    st.warning("PRECIO BTC · NO DISPONIBLE (FUENTES NO RESPONDEN)")
+    return None
 
 def create_user():
     user_id = generate_user_id()
@@ -543,8 +570,8 @@ def create_exit_reason_pie(df):
 # PÁGINA DE INICIO (LANDING) CON ESTÉTICA DE MUSEO
 # ============================================
 def show_landing_page():
-    st.markdown("<h1>AURUM · SISTEMA EN PROCESO</h1>", unsafe_allow_html=True)
-    st.markdown("<p class='small-caption'>UNA INTERFAZ EXPERIMENTAL · DATOS NO FINALES · EN CONSTRUCCIÓN PERMANENTE</p>", unsafe_allow_html=True)
+    st.markdown("<h1>AURUM · BTC/USDT FUTURES TRADING</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='small-caption'>INVIERTE EN FUTUROS DE BTC · ESTRATEGIA AUDITABLE · WALLET TRACKER · SIMULADOR DE RIESGO</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -554,7 +581,7 @@ def show_landing_page():
     
     st.markdown("<div class='construction-ribbon'>⚡ PROTOTIPO EN DESARROLLO ⚡</div>", unsafe_allow_html=True)
     
-    st.markdown("<h2>APUNTES PARA LA CREACIÓN DE UN ORÁCULO</h2>", unsafe_allow_html=True)
+    st.markdown("<h2>FUNDAMENTOS DE LA ESTRATEGIA</h2>", unsafe_allow_html=True)
     colA, colB = st.columns(2)
     with colA:
         st.markdown("""
