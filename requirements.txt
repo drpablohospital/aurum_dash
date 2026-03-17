@@ -1,0 +1,6 @@
+gradio==4.31.0
+pandas==2.0.3
+plotly==5.18.0
+python-dotenv==1.0.0
+ccxt==4.2.2
+numpy==1.24.3
