@@ -418,8 +418,16 @@ def show_backtesting(df, metrics):
     # Distribución por razón de salida
     if metrics.get('exit_reason_counts'):
         st.subheader("Distribución por Razón de Salida")
-        reason_df = pd.DataFrame.from_dict(metrics['exit_reason_counts'], orient='index', columns=['Cantidad'])
-        st.dataframe(reason_df, use_container_width=True)
+        # Crear una copia explícita y asegurar tipos de datos simples
+        reason_data = metrics['exit_reason_counts'].copy()
+        reason_df = pd.DataFrame({
+            'Razón': list(reason_data.keys()),
+            'Cantidad': list(reason_data.values())
+        })
+        # Ordenar por cantidad descendente para mejor visualización
+        reason_df = reason_df.sort_values('Cantidad', ascending=False).reset_index(drop=True)
+        # Mostrar con st.table en lugar de st.dataframe (más simple, menos reactivo)
+        st.table(reason_df)
 
     # Tabla de trades
     st.subheader("Todos los Trades")
@@ -430,48 +438,116 @@ def show_backtesting(df, metrics):
         st.dataframe(display_df, use_container_width=True)
 
 def show_projections():
-    st.title("🔮 Proyecciones")
+    st.title("🔮 Proyección Histórica")
+    st.markdown("Calcula cuánto habrías ganado si hubieras invertido en la estrategia AURUM en una fecha pasada.")
 
-    col1, col2 = st.columns([1, 2])
+    # Cargar datos (usamos los mismos del backtest)
+    df = load_backtest_data()
+
+    if df.empty:
+        st.warning("No hay datos de backtesting para realizar proyecciones.")
+        return
+
+    # Obtener el rango de fechas disponibles
+    min_date = df['entry_time'].min().date()
+    max_date = df['exit_time'].max().date()
+
+    col1, col2 = st.columns(2)
     with col1:
-        initial = st.number_input("Capital Inicial (USDT)", min_value=100, value=10000, step=1000)
-        monthly_return = st.slider("Rendimiento Mensual (%)", min_value=-5.0, max_value=20.0, value=5.0, step=0.5)
-        months = st.slider("Meses a proyectar", min_value=1, max_value=60, value=12)
-        contribution = st.number_input("Aportación Mensual (USDT)", min_value=0, value=0, step=100)
+        # Selector de fecha de inversión
+        investment_date = st.date_input(
+            "📅 Fecha de inversión",
+            value=min_date,
+            min_value=min_date,
+            max_value=max_date,
+            help="Selecciona la fecha en la que habrías empezado a invertir."
+        )
+    with col2:
+        # Monto inicial
+        initial_amount = st.number_input(
+            "💰 Monto inicial (USDT)",
+            min_value=10.0,
+            value=1000.0,
+            step=100.0,
+            help="Cantidad de USDT que habrías invertido inicialmente."
+        )
 
-        if st.button("Calcular Proyección"):
-            capital = [initial]
-            for m in range(1, months + 1):
-                new_cap = capital[-1] * (1 + monthly_return/100) + contribution
-                capital.append(new_cap)
+    if st.button("Calcular proyección", type="primary"):
+        # Convertir la fecha seleccionada a datetime con UTC
+        investment_datetime = pd.Timestamp(investment_date).tz_localize('UTC')
 
-            final_cap = capital[-1]
-            total_profit = final_cap - (initial + contribution * months)
+        # Encontrar el índice del primer trade después de la fecha de inversión
+        # (asumimos que la inversión se hace justo antes de ese trade)
+        trades_after = df[df['entry_time'] >= investment_datetime]
 
-            with col2:
-                st.metric("Capital Final Proyectado", f"${final_cap:,.2f}")
-                st.metric("Ganancia Total", f"${total_profit:,.2f}")
+        if trades_after.empty:
+            st.error("No hay trades después de la fecha seleccionada.")
+            return
 
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=list(range(months+1)),
-                    y=capital,
-                    mode='lines+markers',
-                    name='Capital',
-                    line=dict(color='#00c853', width=3)
-                ))
-                fig.update_layout(
-                    title=f"Proyección {months} meses",
-                    xaxis_title="Meses",
-                    yaxis_title="USDT",
-                    paper_bgcolor='#000000',
-                    plot_bgcolor='#000000',
-                    font_color='white',
-                    title_font_color='white'
-                )
-                fig.update_xaxes(gridcolor='#3d4050', tickfont=dict(color='white'), title_font=dict(color='white'))
-                fig.update_yaxes(gridcolor='#3d4050', tickfont=dict(color='white'), title_font=dict(color='white'))
-                st.plotly_chart(fig, use_container_width=True)
+        # Tomamos el primer trade después de la fecha
+        first_trade_idx = trades_after.index[0]
+
+        # Equity en el momento justo antes de ese trade (usamos el valor acumulado hasta el trade anterior)
+        if first_trade_idx > 0:
+            equity_before = df.loc[first_trade_idx - 1, 'cumulative_equity']
+        else:
+            # Si es el primer trade, el equity inicial era 10000 (por construcción)
+            equity_before = 10000.0
+
+        # Equity al final del período (último valor de cumulative_equity)
+        equity_final = df['cumulative_equity'].iloc[-1]
+
+        # Calcular el factor de crecimiento desde el punto de inversión
+        growth_factor = equity_final / equity_before
+
+        # Resultados
+        final_amount = initial_amount * growth_factor
+        profit_usd = final_amount - initial_amount
+        profit_pct = (growth_factor - 1) * 100
+
+        # Mostrar resultados con estilo
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Inversión inicial", f"${initial_amount:,.2f}")
+        with col2:
+            st.metric("Valor final", f"${final_amount:,.2f}", delta=f"${profit_usd:,.2f}")
+        with col3:
+            st.metric("Rendimiento total", f"{profit_pct:.2f}%")
+
+        # Opcional: gráfico de la evolución desde la fecha de inversión
+        st.subheader("📈 Evolución de la inversión")
+
+        # Filtrar trades desde la fecha de inversión
+        df_filtered = df[df['entry_time'] >= investment_datetime].copy()
+        if not df_filtered.empty:
+            # Normalizar la curva para que empiece en 1 (o en initial_amount)
+            df_filtered['normalized_equity'] = df_filtered['cumulative_equity'] / equity_before * initial_amount
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=df_filtered['exit_time'],
+                y=df_filtered['normalized_equity'],
+                mode='lines',
+                name='Capital',
+                line=dict(color='#00c853', width=2),
+                hovertemplate='Fecha: %{x}<br>Capital: $%{y:,.2f}<extra></extra>'
+            ))
+            fig.update_layout(
+                title=f"Evolución desde {investment_date.strftime('%Y-%m-%d')}",
+                xaxis_title="Fecha",
+                yaxis_title="Capital (USDT)",
+                height=400,
+                paper_bgcolor='#000000',
+                plot_bgcolor='#000000',
+                font_color='white'
+            )
+            fig.update_xaxes(gridcolor='#3d4050', tickfont=dict(color='white'))
+            fig.update_yaxes(gridcolor='#3d4050', tickfont=dict(color='white'))
+
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No hay datos suficientes para mostrar la evolución.")
 
 def show_tracking():
     st.title("💰 Tracking de Fondos")
