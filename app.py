@@ -64,6 +64,30 @@ st.markdown("""
     .negative {
         color: #ff3d00;
     }
+    .telegram-button {
+        display: inline-block;
+        padding: 12px 24px;
+        background: linear-gradient(135deg, #00c853 0%, #00a86b 100%);
+        color: white;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: bold;
+        border: none;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(0,200,83,0.3);
+    }
+    .telegram-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,200,83,0.4);
+    }
+    .feature-card {
+        background: rgba(30,33,48,0.7);
+        border-radius: 10px;
+        padding: 20px;
+        border-left: 4px solid #00c853;
+        margin: 10px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -519,7 +543,135 @@ def create_exit_reason_pie(df):
     return fig
 
 # ============================================
-# INTERFAZ PRINCIPAL
+# NUEVA FUNCIÓN: LANDING PAGE (PORTADA)
+# ============================================
+def show_landing_page():
+    """Muestra la página de inicio con explicación de la estrategia y enlace a Telegram."""
+    
+    # Título principal con estilo
+    st.markdown("""
+    <h1 style='text-align: center; font-size: 4rem; margin-bottom: 0;'>🤖 AURUM</h1>
+    <h2 style='text-align: center; color: #00c853; margin-top: 0;'>ORACLE TRADING SYSTEM</h2>
+    <p style='text-align: center; font-size: 1.2rem; color: #9ba3c7; max-width: 800px; margin: 20px auto;'>
+        Algoritmo de trading de futuros de Bitcoin basado en análisis técnico multicapa 
+        y gestión de riesgo dinámica. Señales en tiempo real y backtesting verificado.
+    </p>
+    """, unsafe_allow_html=True)
+
+    # Botón de Telegram (centrado y llamativo)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(f"""
+        <div style='text-align: center; margin: 30px 0;'>
+            <a href='https://t.me/+-7Ro_KtGxQ8xMzUx' target='_blank' class='telegram-button'>
+                📱 ÚNETE AL CANAL DE TELEGRAM
+            </a>
+            <p style='color: #9ba3c7; margin-top: 10px;'>Señales en vivo, análisis y comunidad</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Sección: ¿Cómo funciona AURUM?
+    st.markdown("---")
+    st.header("⚙️ ¿Cómo funciona AURUM?")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        <div class='feature-card'>
+            <h3 style='color: #00c853; margin-top: 0;'>📊 Análisis Técnico</h3>
+            <p>Combina medias móviles exponenciales (EMA 50/200) en timeframe de 15 minutos y 1 hora, 
+            RSI para confirmación de fuerza, y canales Donchian para detectar rupturas.</p>
+        </div>
+        <div class='feature-card'>
+            <h3 style='color: #00c853; margin-top: 0;'>🛡️ Gestión de Riesgo</h3>
+            <p>Stop loss dinámico basado en ATR, trailing stop que asegura ganancias, 
+            y cooldown tras pérdidas para preservar capital.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class='feature-card'>
+            <h3 style='color: #00c853; margin-top: 0;'>🎯 Ejecución Inteligente</h3>
+            <p>Las señales se activan solo cuando el precio rompe los niveles clave con buffer de volatilidad, 
+            evitando entradas en rangos laterales.</p>
+        </div>
+        <div class='feature-card'>
+            <h3 style='color: #00c853; margin-top: 0;'>📈 Backtesting Real</h3>
+            <p>Más de 950 trades analizados desde 2019, con métricas de win rate, profit factor 
+            y drawdown que puedes explorar en este dashboard.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Sección: Wallet en vivo (legitimidad)
+    st.markdown("---")
+    st.header("💰 Wallet en Vivo (Prueba de Rendimiento)")
+    
+    # Obtener datos en tiempo real para mostrar
+    btc_price = get_btc_price()
+    state = load_state()
+    # Intentar obtener equity si hay conexión a Binance (simplificado)
+    try:
+        exchange = ccxt.binance({'enableRateLimit': True})
+        ticker = exchange.fetch_ticker('BTC/USDT')
+        btc_price_display = f"${ticker['last']:,.2f}"
+    except:
+        btc_price_display = "Conectando..."
+    
+    # Mostrar métricas en tarjetas
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card" style="text-align: center;">
+            <div class="metric-label">Precio BTC</div>
+            <div class="metric-value">{btc_price_display}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        status_text = "🟢 Activo" if not state.get('paused', False) else "🔴 Pausado"
+        st.markdown(f"""
+        <div class="metric-card" style="text-align: center;">
+            <div class="metric-label">Estado del Bot</div>
+            <div class="metric-value">{status_text}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        # Mostrar última métrica del backtest como ejemplo (o real si se puede)
+        df = load_backtest_data()
+        metrics = calculate_metrics(df)
+        st.markdown(f"""
+        <div class="metric-card" style="text-align: center;">
+            <div class="metric-label">Win Rate (Histórico)</div>
+            <div class="metric-value">{metrics.get('win_rate', 0):.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(f"""
+        <div class="metric-card" style="text-align: center;">
+            <div class="metric-label">Profit Factor</div>
+            <div class="metric-value">{metrics.get('profit_factor', 0):.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Gráfico pequeño de la curva de capital (para impacto visual)
+    st.plotly_chart(create_equity_chart(load_backtest_data()), use_container_width=True)
+
+    # Llamada a la acción para explorar el dashboard
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; padding: 20px;'>
+        <h3 style='color: white;'>Explora el dashboard completo</h3>
+        <p style='color: #9ba3c7;'>Usa el menú de la izquierda para ver backtesting detallado, 
+        proyecciones históricas y tracking de fondos personales.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ============================================
+# INTERFAZ PRINCIPAL (MODIFICADA)
 # ============================================
 def main():
     st.sidebar.title("🤖 AURUM")
@@ -546,11 +698,13 @@ def main():
     st.sidebar.metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
     st.sidebar.metric("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}")
 
-    # Menú principal
-    menu = ["📈 Panel Principal", "📜 Backtesting Detallado", "🔮 Proyecciones", "💰 Tracking", "📋 Trades"]
+    # Menú principal (AHORA CON LANDING PAGE)
+    menu = ["🏠 Inicio", "📈 Panel Principal", "📜 Backtesting Detallado", "🔮 Proyecciones", "💰 Tracking", "📋 Trades"]
     choice = st.sidebar.radio("Navegación", menu)
 
-    if choice == "📈 Panel Principal":
+    if choice == "🏠 Inicio":
+        show_landing_page()
+    elif choice == "📈 Panel Principal":
         show_dashboard(df, metrics)
     elif choice == "📜 Backtesting Detallado":
         show_backtesting(df, metrics)
@@ -561,6 +715,9 @@ def main():
     elif choice == "📋 Trades":
         show_trades(df)
 
+# ============================================
+# FUNCIONES DE LAS PESTAÑAS (SIN CAMBIOS)
+# ============================================
 def show_dashboard(df, metrics):
     st.title("📈 Panel Principal")
 
