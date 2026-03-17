@@ -605,7 +605,7 @@ def show_landing_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-        st.markdown("<a href='https://t.me/+-7Ro_KtGxQ8xMzUx' target='_blank' class='telegram-link'>📡 BOT DE SEÑALES (TELEGRAM)</a>", unsafe_allow_html=True)
+        st.markdown("<a href='https://t.me/+-7Ro_KtGxQ8xMzUx' target='_blank' class='telegram-link'>📡 BOT DE TELEGRAM</a>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
     
     st.markdown("<div class='construction-ribbon'>⚡</div>", unsafe_allow_html=True)
