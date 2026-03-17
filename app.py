@@ -6,366 +6,167 @@ import json
 import os
 from datetime import datetime
 import numpy as np
-from dotenv import load_dotenv
-import ccxt
 import time
 
-# Cargar variables de entorno
-load_dotenv()
+# ============================================
+# CONFIGURACIÓN DE LA PÁGINA (TEMA OSCURO PROFESIONAL)
+# ============================================
+st.set_page_config(
+    page_title="AURUM Trading Dashboard",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# CSS personalizado para un look más futurista
+st.markdown("""
+<style>
+    .reportview-container {
+        background: #0e1117;
+    }
+    .sidebar .sidebar-content {
+        background: #1e2130;
+    }
+    .Widget>label {
+        color: #9ba3c7;
+    }
+    .stAlert {
+        background-color: #1e2130;
+        color: white;
+        border-left-color: #00c853;
+    }
+    h1, h2, h3 {
+        color: #ffffff;
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #1e2130 0%, #2d3040 100%);
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        border: 1px solid #3d4050;
+    }
+    .metric-label {
+        color: #9ba3c7;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .metric-value {
+        color: white;
+        font-size: 2rem;
+        font-weight: bold;
+    }
+    .positive {
+        color: #00c853;
+    }
+    .negative {
+        color: #ff3d00;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================
-# CONFIGURACIÓN Y CONSTANTES
+# CONSTANTES
 # ============================================
 CAPITAL_LOG_FILE = "capital_log.json"
-TRADES_FILE = "trades.csv"
-BACKTEST_FILE = "backtest.csv"
+BACKTEST_FILE = "backtest.csv"  # Este es el archivo que me mostraste
 STATE_FILE = "state.json"
 CONFIG_FILE = "config.json"
 
 # ============================================
-# FUNCIONES DE UTILIDAD (igual que antes)
+# FUNCIONES DE CARGA DE DATOS
 # ============================================
-def load_json_safe(file_path, default=None):
-    try:
-        if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"Error cargando {file_path}: {e}")
-    return default if default is not None else {}
-
-def save_json_safe(file_path, data):
-    try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        return True
-    except Exception as e:
-        print(f"Error guardando {file_path}: {e}")
-        return False
-
-def get_exchange():
-    try:
-        testnet = os.getenv("TESTNET", "true").lower() == "true"
-        ex = ccxt.binanceusdm({
-            "apiKey": os.getenv("BINANCE_KEY", ""),
-            "secret": os.getenv("BINANCE_SECRET", ""),
-            "enableRateLimit": True,
-        })
-        if testnet:
-            ex.set_sandbox_mode(True)
-        return ex
-    except:
-        return None
-
-def format_number(num, decimals=2):
-    try:
-        if num is None:
-            return "0.00"
-        if isinstance(num, str):
-            num = float(num)
-        if abs(num) >= 1e6:
-            return f"${num/1e6:.2f}M"
-        elif abs(num) >= 1e3:
-            return f"${num/1e3:.2f}K"
-        else:
-            return f"${num:.{decimals}f}"
-    except:
-        return str(num)
-
-# ============================================
-# FUNCIONES DE TRACKING DE FONDOS (igual)
-# ============================================
-def init_capital_log():
-    if not os.path.exists(CAPITAL_LOG_FILE):
-        initial_data = {
-            "deposits": [],
-            "withdrawals": [],
-            "initial_capital": 0,
-            "history": []
-        }
-        save_json_safe(CAPITAL_LOG_FILE, initial_data)
-    return load_json_safe(CAPITAL_LOG_FILE)
-
-def add_capital_movement(movement_type, amount, note=""):
-    data = init_capital_log()
-    movement = {
-        "date": datetime.now().isoformat(),
-        "amount": float(amount),
-        "note": note
-    }
-    if movement_type == "Depósito":
-        data["deposits"].append(movement)
-    else:
-        data["withdrawals"].append(movement)
-    total_deposits = sum(m["amount"] for m in data["deposits"])
-    total_withdrawals = sum(m["amount"] for m in data["withdrawals"])
-    current_capital = total_deposits - total_withdrawals
-    data["history"].append({
-        "date": datetime.now().isoformat(),
-        "total_capital": current_capital,
-        "movement_type": movement_type,
-        "movement_amount": amount
-    })
-    save_json_safe(CAPITAL_LOG_FILE, data)
-    return get_capital_summary()
-
-def get_capital_summary():
-    data = init_capital_log()
-    total_deposits = sum(m["amount"] for m in data["deposits"])
-    total_withdrawals = sum(m["amount"] for m in data["withdrawals"])
-    net_capital = total_deposits - total_withdrawals
-    current_equity = 0
-    try:
-        ex = get_exchange()
-        if ex:
-            balance = ex.fetch_balance()
-            current_equity = float(balance.get("total", {}).get("USDT", 0))
-    except:
-        pass
-    return {
-        "total_deposits": total_deposits,
-        "total_withdrawals": total_withdrawals,
-        "net_capital": net_capital,
-        "current_equity": current_equity,
-        "profit_loss": current_equity - net_capital,
-        "deposits_list": data["deposits"],
-        "withdrawals_list": data["withdrawals"]
-    }
-
-# ============================================
-# FUNCIONES DE DATOS DEL BOT (igual)
-# ============================================
-def load_trades():
-    try:
-        if os.path.exists(TRADES_FILE):
-            df = pd.read_csv(TRADES_FILE)
-            numeric_cols = ['entry', 'mark', 'pnl_pct']
-            for col in numeric_cols:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            return df
-        else:
-            return pd.DataFrame(columns=['ts_utc', 'event', 'side', 'entry', 'mark', 'pnl_pct', 'exit_reason'])
-    except Exception as e:
-        print(f"Error cargando trades: {e}")
-        return pd.DataFrame()
-
-def get_bot_status():
-    state = load_json_safe(STATE_FILE, {})
-    config = load_json_safe(CONFIG_FILE, {})
-    btc_price = 0
-    equity = 0
-    position = "No"
-    try:
-        ex = get_exchange()
-        if ex:
-            ticker = ex.fetch_ticker(config.get("symbol", "BTC/USDT"))
-            btc_price = ticker['last']
-            balance = ex.fetch_balance()
-            equity = float(balance.get("total", {}).get("USDT", 0))
-            positions = ex.fetch_positions([config.get("symbol", "BTC/USDT")])
-            for p in positions:
-                if abs(float(p.get("contracts", 0))) > 0:
-                    position = f"{p.get('side', '').upper()} @ ${float(p.get('entryPrice', 0)):.2f}"
-                    break
-    except:
-        pass
-    now_ts = int(time.time())
-    cooldown_until = state.get("cooldown_until", 0)
-    cooldown_remaining = max(0, cooldown_until - now_ts) // 60 if cooldown_until > now_ts else 0
-    return {
-        "btc_price": btc_price,
-        "equity": equity,
-        "position": position,
-        "paused": state.get("paused", False),
-        "loss_streak": state.get("loss_streak", 0),
-        "cooldown": cooldown_remaining,
-        "armed": state.get("armed", {}).get("active", False),
-        "last_update": datetime.now().strftime("%H:%M:%S")
-    }
-
+@st.cache_data
 def load_backtest_data():
+    """
+    Carga los datos de backtesting desde el CSV.
+    El CSV debe tener columnas: entry_time, exit_time, side, exit_reason, R, pnl_equity_pct
+    """
     try:
         if os.path.exists(BACKTEST_FILE):
             df = pd.read_csv(BACKTEST_FILE)
-            required_cols = ['date', 'equity']
-            if all(col in df.columns for col in required_cols):
-                return df
-            else:
-                return create_sample_backtest()
+
+            # Convertir columnas de tiempo a datetime
+            df['entry_time'] = pd.to_datetime(df['entry_time'], utc=True)
+            df['exit_time'] = pd.to_datetime(df['exit_time'], utc=True)
+
+            # Convertir a numérico
+            df['pnl_equity_pct'] = pd.to_numeric(df['pnl_equity_pct'], errors='coerce')
+            df['R'] = pd.to_numeric(df['R'], errors='coerce')
+
+            # Ordenar por tiempo de entrada
+            df = df.sort_values('entry_time')
+
+            # Calcular equity curve acumulada
+            df['cumulative_equity'] = (1 + df['pnl_equity_pct']/100).cumprod() * 10000  # Capital inicial 10k
+
+            return df
         else:
+            st.warning(f"Archivo {BACKTEST_FILE} no encontrado. Usando datos de ejemplo.")
             return create_sample_backtest()
-    except:
+    except Exception as e:
+        st.error(f"Error cargando backtest: {e}")
         return create_sample_backtest()
 
 def create_sample_backtest():
+    """Crea datos de ejemplo si no hay archivo"""
     dates = pd.date_range(start='2024-01-01', end='2024-03-16', freq='D')
     np.random.seed(42)
     returns = np.random.normal(0.001, 0.02, len(dates))
     equity = 10000 * np.cumprod(1 + returns)
     return pd.DataFrame({
-        'date': dates,
-        'equity': equity,
-        'btc_price': 40000 * (1 + np.random.normal(0, 0.01, len(dates)).cumsum() / 100)
+        'entry_time': dates,
+        'exit_time': dates + pd.Timedelta(hours=1),
+        'side': np.random.choice(['LONG', 'SHORT'], len(dates)),
+        'exit_reason': np.random.choice(['TP', 'SL', 'TRAIL'], len(dates)),
+        'R': np.random.uniform(0.5, 3, len(dates)),
+        'pnl_equity_pct': returns * 100,
+        'cumulative_equity': equity
     })
 
-# ============================================
-# FUNCIONES DE GRÁFICOS (igual)
-# ============================================
-def create_equity_chart(backtest_df=None, capital_data=None):
-    fig = make_subplots(
-        rows=2, cols=1,
-        subplot_titles=('Evolución del Capital', 'Drawdown'),
-        vertical_spacing=0.12,
-        row_heights=[0.7, 0.3]
-    )
-    if backtest_df is not None and not backtest_df.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=backtest_df['date'],
-                y=backtest_df['equity'],
-                name='Backtest',
-                line=dict(color='blue', width=2),
-                mode='lines'
-            ),
-            row=1, col=1
-        )
-        rolling_max = backtest_df['equity'].cummax()
-        drawdown = (backtest_df['equity'] - rolling_max) / rolling_max * 100
-        fig.add_trace(
-            go.Scatter(
-                x=backtest_df['date'],
-                y=drawdown,
-                name='Drawdown',
-                line=dict(color='red', width=1),
-                fill='tozeroy',
-                fillcolor='rgba(255,0,0,0.1)'
-            ),
-            row=2, col=1
-        )
-    status = get_bot_status()
-    if status['equity'] > 0:
-        fig.add_trace(
-            go.Scatter(
-                x=[datetime.now()],
-                y=[status['equity']],
-                name='Actual',
-                mode='markers',
-                marker=dict(size=12, color='green', symbol='star')
-            ),
-            row=1, col=1
-        )
-    fig.update_layout(height=600, showlegend=True, title_text="Curva de Capital")
-    fig.update_yaxes(title_text="Capital (USDT)", row=1, col=1)
-    fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1)
-    return fig
-
-def create_projection_chart(initial_capital, monthly_return, months, monthly_contribution=0):
-    months_range = list(range(months + 1))
-    capital = [initial_capital]
-    contributions = [initial_capital]
-    for m in range(1, months + 1):
-        new_capital = capital[-1] * (1 + monthly_return/100) + monthly_contribution
-        capital.append(new_capital)
-        new_contributions = contributions[-1] + monthly_contribution
-        contributions.append(new_contributions)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=months_range, y=capital,
-        name='Capital Proyectado',
-        line=dict(color='green', width=3),
-        mode='lines+markers'
-    ))
-    fig.add_trace(go.Scatter(
-        x=months_range, y=contributions,
-        name='Total Aportado',
-        line=dict(color='blue', width=2, dash='dash'),
-        mode='lines'
-    ))
-    fig.add_trace(go.Scatter(
-        x=months_range + months_range[::-1],
-        y=capital + contributions[::-1],
-        fill='toself',
-        fillcolor='rgba(0,255,0,0.1)',
-        line=dict(color='rgba(255,255,255,0)'),
-        name='Ganancias'
-    ))
-    fig.update_layout(
-        title=f"Proyección {months} meses | {monthly_return}% mensual",
-        xaxis_title="Meses",
-        yaxis_title="Capital (USDT)",
-        height=500,
-        hovermode='x unified'
-    )
-    return fig
-
-def create_trades_history_chart():
-    trades_df = load_trades()
-    if trades_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="No hay datos de trades disponibles", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        return fig
-    closed_trades = trades_df[trades_df['event'] == 'CLOSED'].copy()
-    if closed_trades.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="No hay trades cerrados", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        return fig
-    closed_trades['date'] = pd.to_datetime(closed_trades['ts_utc'])
-    closed_trades = closed_trades.sort_values('date')
-    closed_trades['cumulative_pnl'] = (1 + closed_trades['pnl_pct']/100).cumprod() * 10000
-    fig = make_subplots(rows=2, cols=1, subplot_titles=('PnL por Trade', 'Equity Curve'), vertical_spacing=0.15)
-    colors = closed_trades['side'].map({'LONG': 'green', 'SHORT': 'red'})
-    fig.add_trace(
-        go.Bar(
-            x=closed_trades['date'],
-            y=closed_trades['pnl_pct'],
-            name='PnL %',
-            marker_color=colors,
-            text=closed_trades['exit_reason'],
-            hovertemplate='Fecha: %{x}<br>PnL: %{y:.2f}%<br>Razón: %{text}<extra></extra>'
-        ),
-        row=1, col=1
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=closed_trades['date'],
-            y=closed_trades['cumulative_pnl'],
-            name='Capital',
-            line=dict(color='blue', width=2),
-            mode='lines+markers'
-        ),
-        row=2, col=1
-    )
-    fig.update_layout(height=600, showlegend=False)
-    fig.update_yaxes(title_text="PnL %", row=1, col=1)
-    fig.update_yaxes(title_text="Capital (USDT)", row=2, col=1)
-    return fig
+def load_state():
+    """Carga el estado del bot (para información de cooldown, etc.)"""
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r') as f:
+                return json.load(f)
+    except:
+        pass
+    return {}
 
 # ============================================
-# FUNCIONES DE MÉTRICAS (igual)
+# FUNCIONES DE MÉTRICAS
 # ============================================
-def calculate_metrics():
-    trades_df = load_trades()
-    if trades_df.empty:
-        return {"total_trades": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0, "profit_factor": 0, "max_drawdown": 0, "sharpe": 0}
-    closed_trades = trades_df[trades_df['event'] == 'CLOSED']
-    if closed_trades.empty:
-        return {"total_trades": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0, "profit_factor": 0, "max_drawdown": 0, "sharpe": 0}
-    winning_trades = closed_trades[closed_trades['pnl_pct'] > 0]
-    losing_trades = closed_trades[closed_trades['pnl_pct'] < 0]
-    total_trades = len(closed_trades)
+def calculate_metrics(df):
+    """Calcula métricas de rendimiento a partir del DataFrame de backtest"""
+    if df.empty:
+        return {}
+
+    total_trades = len(df)
+    winning_trades = df[df['pnl_equity_pct'] > 0]
+    losing_trades = df[df['pnl_equity_pct'] < 0]
+
     win_rate = len(winning_trades) / total_trades * 100 if total_trades > 0 else 0
-    avg_win = winning_trades['pnl_pct'].mean() if not winning_trades.empty else 0
-    avg_loss = losing_trades['pnl_pct'].mean() if not losing_trades.empty else 0
-    total_profit = winning_trades['pnl_pct'].sum() if not winning_trades.empty else 0
-    total_loss = abs(losing_trades['pnl_pct'].sum()) if not losing_trades.empty else 1
+    avg_win = winning_trades['pnl_equity_pct'].mean() if not winning_trades.empty else 0
+    avg_loss = losing_trades['pnl_equity_pct'].mean() if not losing_trades.empty else 0
+
+    total_profit = winning_trades['pnl_equity_pct'].sum() if not winning_trades.empty else 0
+    total_loss = abs(losing_trades['pnl_equity_pct'].sum()) if not losing_trades.empty else 1
     profit_factor = total_profit / total_loss if total_loss > 0 else 0
-    closed_trades['cumulative'] = (1 + closed_trades['pnl_pct']/100).cumprod()
-    rolling_max = closed_trades['cumulative'].cummax()
-    drawdown = (closed_trades['cumulative'] - rolling_max) / rolling_max * 100
+
+    # Calcular drawdown máximo
+    cumulative = df['cumulative_equity']
+    rolling_max = cumulative.cummax()
+    drawdown = (cumulative - rolling_max) / rolling_max * 100
     max_drawdown = drawdown.min()
-    returns = closed_trades['pnl_pct'] / 100
+
+    # Sharpe ratio (asumiendo 252 días de trading)
+    returns = df['pnl_equity_pct'] / 100
     sharpe = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
+
+    # Distribución por razón de salida
+    exit_reason_counts = df['exit_reason'].value_counts()
+
     return {
         "total_trades": total_trades,
         "win_rate": win_rate,
@@ -373,161 +174,364 @@ def calculate_metrics():
         "avg_loss": avg_loss,
         "profit_factor": profit_factor,
         "max_drawdown": max_drawdown,
-        "sharpe": sharpe
+        "sharpe": sharpe,
+        "exit_reason_counts": exit_reason_counts.to_dict(),
+        "avg_R": df['R'].mean()
     }
 
 # ============================================
-# INTERFAZ STREAMLIT (nueva)
+# FUNCIONES DE GRÁFICOS
 # ============================================
-st.set_page_config(page_title="AURUM Trading Dashboard", layout="wide", initial_sidebar_state="collapsed")
+def create_equity_chart(df):
+    """Crea gráfico de evolución de capital con drawdown"""
+    if df.empty:
+        return go.Figure()
 
-# Título principal
-st.title("🤖 AURUM Trading Dashboard")
-st.markdown("Dashboard para monitorear y gestionar tu bot de trading de Bitcoin")
+    fig = make_subplots(
+        rows=2, cols=1,
+        subplot_titles=('Evolución del Capital', 'Drawdown'),
+        vertical_spacing=0.12,
+        row_heights=[0.7, 0.3]
+    )
 
-# Inicializar datos
-if 'capital_summary' not in st.session_state:
-    st.session_state.capital_summary = get_capital_summary()
-if 'backtest_df' not in st.session_state:
-    st.session_state.backtest_df = load_backtest_data()
+    # Curva de capital
+    fig.add_trace(
+        go.Scatter(
+            x=df['exit_time'],
+            y=df['cumulative_equity'],
+            name='Capital',
+            line=dict(color='#00c853', width=2),
+            mode='lines',
+            hovertemplate='Fecha: %{x}<br>Capital: $%{y:,.2f}<extra></extra>'
+        ),
+        row=1, col=1
+    )
 
-# Crear pestañas
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Panel Principal", "📜 Backtesting", "🔮 Proyecciones", "💰 Tracking de Fondos", "📋 Histórico de Trades"])
+    # Drawdown
+    rolling_max = df['cumulative_equity'].cummax()
+    drawdown = (df['cumulative_equity'] - rolling_max) / rolling_max * 100
 
-# ========== PESTAÑA 1: PANEL PRINCIPAL ==========
-with tab1:
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.markdown("### 📈 Estado del Bot")
-        status = get_bot_status()
-        st.metric("BTC/USDT", f"${status['btc_price']:,.2f}" if status['btc_price'] else "No disponible")
-        st.metric("Equity USDT", format_number(status['equity']))
-        st.metric("Posición Actual", status['position'])
-        estado = "🟢 Activo" if not status['paused'] else "🔴 Pausado"
-        st.metric("Estado", estado)
+    fig.add_trace(
+        go.Scatter(
+            x=df['exit_time'],
+            y=drawdown,
+            name='Drawdown',
+            line=dict(color='#ff3d00', width=1),
+            fill='tozeroy',
+            fillcolor='rgba(255,61,0,0.1)',
+            hovertemplate='Fecha: %{x}<br>Drawdown: %{y:.2f}%<extra></extra>'
+        ),
+        row=2, col=1
+    )
 
-        st.markdown("### 📊 Métricas de Rendimiento")
-        metrics = calculate_metrics()
-        col_met1, col_met2 = st.columns(2)
-        with col_met1:
-            st.metric("Win Rate", f"{metrics['win_rate']:.1f}%")
-            st.metric("Total Trades", metrics['total_trades'])
-        with col_met2:
-            st.metric("Profit Factor", f"{metrics['profit_factor']:.2f}")
-            st.metric("Sharpe Ratio", f"{metrics['sharpe']:.2f}")
+    fig.update_layout(
+        height=600,
+        showlegend=False,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(30,33,48,1)',
+        font_color='white',
+        title_font_color='white'
+    )
 
-    with col2:
-        st.markdown("### 📈 Evolución del Capital")
-        chart = create_equity_chart(st.session_state.backtest_df, st.session_state.capital_summary)
-        st.plotly_chart(chart, use_container_width=True)
+    fig.update_xaxes(gridcolor='#3d4050', gridwidth=1, linecolor='#3d4050')
+    fig.update_yaxes(gridcolor='#3d4050', gridwidth=1, linecolor='#3d4050')
+    fig.update_yaxes(title_text="Capital (USDT)", row=1, col=1)
+    fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1)
 
-    if st.button("🔄 Actualizar Datos"):
-        st.rerun()
+    return fig
 
-# ========== PESTAÑA 2: BACKTESTING ==========
-with tab2:
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.markdown("### 📋 Estadísticas Históricas")
-        # Aquí puedes poner valores fijos o calcularlos desde backtest_df
-        st.metric("Capital Inicial", "$10,000", help="USDT")
-        st.metric("Capital Final", "$15,420", help="USDT (ejemplo)")
-        st.metric("Retorno Total", "54.2%")
-        st.metric("CAGR", "28.5% anual")
-        st.markdown("---")
-        st.metric("Máx Drawdown", "-12.5%")
-        st.metric("Win Rate Histórico", "62.3%")
-        st.metric("Trade Promedio", "2.1%")
-        st.metric("Profit Factor", "1.85")
-    with col2:
-        st.markdown("### 📈 Curva de Capital (Backtest)")
-        st.plotly_chart(create_equity_chart(st.session_state.backtest_df), use_container_width=True)
+def create_pnl_distribution_chart(df):
+    """Crea gráfico de distribución de PnL por trade"""
+    if df.empty:
+        return go.Figure()
 
-# ========== PESTAÑA 3: PROYECCIONES ==========
-with tab3:
-    st.markdown("### Simulador de Crecimiento")
-    st.markdown("Ajusta los parámetros para ver proyecciones de tu capital")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        proj_capital = st.number_input("Capital Inicial (USDT)", value=10000, min_value=100, max_value=1000000, step=100)
-        proj_return = st.slider("Rendimiento Mensual (%)", min_value=-5.0, max_value=20.0, value=5.0, step=0.5)
-        proj_months = st.slider("Meses a proyectar", min_value=1, max_value=60, value=12, step=1)
-        proj_contribution = st.number_input("Aportación Mensual (USDT)", value=0, min_value=0, max_value=10000, step=100)
-        if st.button("📊 Calcular Proyección"):
-            st.session_state.proj_chart = create_projection_chart(proj_capital, proj_return, proj_months, proj_contribution)
-            # Calcular valores finales
-            final_cap = proj_capital
-            for _ in range(proj_months):
-                final_cap = final_cap * (1 + proj_return/100) + proj_contribution
-            total_profit_val = final_cap - (proj_capital + proj_contribution * proj_months)
-            st.session_state.final_value = final_cap
-            st.session_state.total_profit = total_profit_val
-    with col2:
-        if 'proj_chart' in st.session_state:
-            st.plotly_chart(st.session_state.proj_chart, use_container_width=True)
-            col_res1, col_res2 = st.columns(2)
-            with col_res1:
-                st.metric("Capital Final Proyectado", format_number(st.session_state.final_value))
-            with col_res2:
-                st.metric("Ganancia Total", format_number(st.session_state.total_profit))
-        else:
-            st.info("Ajusta los parámetros y presiona 'Calcular Proyección'")
+    colors = ['#00c853' if x > 0 else '#ff3d00' for x in df['pnl_equity_pct']]
 
-# ========== PESTAÑA 4: TRACKING DE FONDOS ==========
-with tab4:
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.markdown("#### Registrar Movimiento")
-        movement_type = st.radio("Tipo", ["Depósito", "Retiro"])
-        movement_amount = st.number_input("Cantidad (USDT)", min_value=0, value=100, step=10)
-        movement_note = st.text_input("Nota (opcional)", placeholder="Ej: Depósito inicial")
-        if st.button("➕ Registrar Movimiento"):
-            add_capital_movement(movement_type, movement_amount, movement_note)
-            st.session_state.capital_summary = get_capital_summary()
-            st.success("Movimiento registrado")
-            st.rerun()
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df.index,
+        y=df['pnl_equity_pct'],
+        marker_color=colors,
+        text=df['exit_reason'],
+        hovertemplate='Trade #%{x}<br>PnL: %{y:.2f}%<br>Razón: %{text}<extra></extra>'
+    ))
 
-        st.markdown("#### Resumen de Capital")
-        cap = st.session_state.capital_summary
-        st.metric("Total Depósitos", format_number(cap['total_deposits']))
-        st.metric("Total Retiros", format_number(cap['total_withdrawals']))
-        st.metric("Capital Neto Aportado", format_number(cap['net_capital']))
-        profit_color = "normal" if cap['profit_loss'] >= 0 else "inverse"
-        st.metric("Profit/Pérdida Actual", format_number(cap['profit_loss']), delta_color=profit_color)
+    fig.update_layout(
+        title="PnL por Trade",
+        xaxis_title="Número de Trade",
+        yaxis_title="PnL %",
+        height=400,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(30,33,48,1)',
+        font_color='white'
+    )
 
-    with col2:
-        st.markdown("#### Historial de Movimientos")
-        movements = []
-        for d in cap['deposits_list']:
-            movements.append([d['date'][:10], "Depósito", f"${d['amount']:,.2f}", d.get('note', '')])
-        for w in cap['withdrawals_list']:
-            movements.append([w['date'][:10], "Retiro", f"${w['amount']:,.2f}", w.get('note', '')])
-        if movements:
-            movements_df = pd.DataFrame(movements, columns=["Fecha", "Tipo", "Cantidad", "Nota"])
-            movements_df = movements_df.sort_values("Fecha", ascending=False)
-            st.dataframe(movements_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay movimientos registrados")
+    return fig
 
-    if st.button("🔄 Actualizar Tracking"):
-        st.session_state.capital_summary = get_capital_summary()
-        st.rerun()
+def create_exit_reason_pie(df):
+    """Crea gráfico circular de razones de salida"""
+    if df.empty:
+        return go.Figure()
 
-# ========== PESTAÑA 5: HISTÓRICO DE TRADES ==========
-with tab5:
-    st.markdown("### Registro de Operaciones")
-    st.plotly_chart(create_trades_history_chart(), use_container_width=True)
-    trades_df = load_trades()
-    if not trades_df.empty:
-        st.dataframe(trades_df, use_container_width=True, hide_index=True)
+    reason_counts = df['exit_reason'].value_counts()
+
+    colors = {'TP': '#00c853', 'SL': '#ff3d00', 'TRAIL': '#ffab00', 'BE': '#2979ff'}
+    color_list = [colors.get(r, '#9e9e9e') for r in reason_counts.index]
+
+    fig = go.Figure(data=[go.Pie(
+        labels=reason_counts.index,
+        values=reason_counts.values,
+        hole=0.4,
+        marker_colors=color_list,
+        textinfo='label+percent',
+        insidetextorientation='radial'
+    )])
+
+    fig.update_layout(
+        title="Razones de Salida",
+        height=300,
+        paper_bgcolor='rgba(0,0,0,0)',
+        font_color='white',
+        showlegend=False
+    )
+
+    return fig
+
+# ============================================
+# INTERFAZ PRINCIPAL
+# ============================================
+def main():
+    st.sidebar.title("🤖 AURUM")
+    st.sidebar.markdown("---")
+
+    # Cargar datos (con cache)
+    df = load_backtest_data()
+    metrics = calculate_metrics(df)
+    state = load_state()
+
+    # Información del bot en sidebar
+    st.sidebar.subheader("📡 Estado del Bot")
+    if state.get('paused'):
+        st.sidebar.warning("🔴 PAUSADO")
     else:
-        st.info("No hay datos de trades")
-    if st.button("🔄 Actualizar Histórico"):
-        st.rerun()
+        st.sidebar.success("🟢 ACTIVO")
 
-# ============================================
-# INICIALIZACIÓN
-# ============================================
+    st.sidebar.metric("Cooldown", f"{state.get('cooldown_until', 0)} min")
+    st.sidebar.metric("Racha pérdidas", state.get('loss_streak', 0))
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📊 Resumen Backtest")
+    st.sidebar.metric("Total Trades", metrics.get('total_trades', 0))
+    st.sidebar.metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
+    st.sidebar.metric("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}")
+
+    # Menú principal
+    menu = ["📈 Panel Principal", "📜 Backtesting Detallado", "🔮 Proyecciones", "💰 Tracking", "📋 Trades"]
+    choice = st.sidebar.radio("Navegación", menu)
+
+    if choice == "📈 Panel Principal":
+        show_dashboard(df, metrics)
+    elif choice == "📜 Backtesting Detallado":
+        show_backtesting(df, metrics)
+    elif choice == "🔮 Proyecciones":
+        show_projections()
+    elif choice == "💰 Tracking":
+        show_tracking()
+    elif choice == "📋 Trades":
+        show_trades(df)
+
+def show_dashboard(df, metrics):
+    st.title("📈 Panel Principal")
+
+    # Métricas principales en tarjetas personalizadas
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Win Rate</div>
+            <div class="metric-value">{metrics.get('win_rate', 0):.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Profit Factor</div>
+            <div class="metric-value">{metrics.get('profit_factor', 0):.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Total Trades</div>
+            <div class="metric-value">{metrics.get('total_trades', 0)}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        sharpe = metrics.get('sharpe', 0)
+        sharpe_class = "positive" if sharpe > 1 else "negative" if sharpe < 0 else ""
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Sharpe Ratio</div>
+            <div class="metric-value {sharpe_class}">{sharpe:.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Gráfico principal
+    st.plotly_chart(create_equity_chart(df), use_container_width=True)
+
+    # Dos gráficos secundarios
+    col1, col2 = st.columns(2)
+    with col1:
+        st.plotly_chart(create_pnl_distribution_chart(df), use_container_width=True)
+    with col2:
+        st.plotly_chart(create_exit_reason_pie(df), use_container_width=True)
+
+def show_backtesting(df, metrics):
+    st.title("📜 Backtesting Detallado")
+
+    # Métricas avanzadas
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Máx Drawdown", f"{metrics.get('max_drawdown', 0):.2f}%")
+    with col2:
+        st.metric("Avg Win", f"{metrics.get('avg_win', 0):.2f}%")
+    with col3:
+        st.metric("Avg Loss", f"{metrics.get('avg_loss', 0):.2f}%")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Avg R Múltiple", f"{metrics.get('avg_R', 0):.2f}")
+    with col2:
+        st.metric("Trades Ganadores", len(df[df['pnl_equity_pct'] > 0]) if not df.empty else 0)
+    with col3:
+        st.metric("Trades Perdedores", len(df[df['pnl_equity_pct'] < 0]) if not df.empty else 0)
+
+    # Distribución por razón de salida
+    if metrics.get('exit_reason_counts'):
+        st.subheader("Distribución por Razón de Salida")
+        reason_df = pd.DataFrame.from_dict(metrics['exit_reason_counts'], orient='index', columns=['Cantidad'])
+        st.dataframe(reason_df, use_container_width=True)
+
+    # Tabla de trades
+    st.subheader("Todos los Trades")
+    if not df.empty:
+        display_df = df[['entry_time', 'exit_time', 'side', 'exit_reason', 'R', 'pnl_equity_pct']].copy()
+        display_df['pnl_equity_pct'] = display_df['pnl_equity_pct'].round(2)
+        display_df['R'] = display_df['R'].round(2)
+        st.dataframe(display_df, use_container_width=True)
+
+def show_projections():
+    st.title("🔮 Proyecciones")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        initial = st.number_input("Capital Inicial (USDT)", min_value=100, value=10000, step=1000)
+        monthly_return = st.slider("Rendimiento Mensual (%)", min_value=-5.0, max_value=20.0, value=5.0, step=0.5)
+        months = st.slider("Meses a proyectar", min_value=1, max_value=60, value=12)
+        contribution = st.number_input("Aportación Mensual (USDT)", min_value=0, value=0, step=100)
+
+        if st.button("Calcular Proyección"):
+            capital = [initial]
+            for m in range(1, months + 1):
+                new_cap = capital[-1] * (1 + monthly_return/100) + contribution
+                capital.append(new_cap)
+
+            final_cap = capital[-1]
+            total_profit = final_cap - (initial + contribution * months)
+
+            with col2:
+                st.metric("Capital Final Proyectado", f"${final_cap:,.2f}")
+                st.metric("Ganancia Total", f"${total_profit:,.2f}")
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=list(range(months+1)),
+                    y=capital,
+                    mode='lines+markers',
+                    name='Capital',
+                    line=dict(color='#00c853', width=3)
+                ))
+                fig.update_layout(
+                    title=f"Proyección {months} meses",
+                    xaxis_title="Meses",
+                    yaxis_title="USDT",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(30,33,48,1)',
+                    font_color='white'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+def show_tracking():
+    st.title("💰 Tracking de Fondos")
+    st.info("Funcionalidad de tracking en desarrollo. Por ahora puedes ver el archivo JSON.")
+
+    if os.path.exists(CAPITAL_LOG_FILE):
+        with open(CAPITAL_LOG_FILE, 'r') as f:
+            data = json.load(f)
+        st.json(data)
+    else:
+        st.write("No hay datos de tracking. Se creará un archivo al registrar movimientos.")
+
+        # Formulario simple para registrar
+        with st.form("movement_form"):
+            movement_type = st.selectbox("Tipo", ["Depósito", "Retiro"])
+            amount = st.number_input("Cantidad (USDT)", min_value=0.0, value=100.0)
+            note = st.text_input("Nota")
+            submitted = st.form_submit_button("Registrar")
+
+            if submitted:
+                # Crear estructura inicial
+                data = {
+                    "deposits": [],
+                    "withdrawals": [],
+                    "history": []
+                }
+                movement = {
+                    "date": datetime.now().isoformat(),
+                    "amount": amount,
+                    "note": note
+                }
+                if movement_type == "Depósito":
+                    data["deposits"].append(movement)
+                else:
+                    data["withdrawals"].append(movement)
+
+                with open(CAPITAL_LOG_FILE, 'w') as f:
+                    json.dump(data, f, indent=2)
+                st.success("Movimiento registrado!")
+                st.rerun()
+
+def show_trades(df):
+    st.title("📋 Histórico de Trades")
+
+    if not df.empty:
+        # Estadísticas rápidas
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Trades", len(df))
+        with col2:
+            st.metric("Trades Ganadores", len(df[df['pnl_equity_pct'] > 0]))
+        with col3:
+            st.metric("Trades Perdedores", len(df[df['pnl_equity_pct'] < 0]))
+
+        # Tabla completa con formato
+        display_df = df.copy()
+        display_df['entry_time'] = display_df['entry_time'].dt.strftime('%Y-%m-%d %H:%M')
+        display_df['exit_time'] = display_df['exit_time'].dt.strftime('%Y-%m-%d %H:%M')
+        display_df['pnl_equity_pct'] = display_df['pnl_equity_pct'].round(2).astype(str) + '%'
+        display_df['R'] = display_df['R'].round(2)
+
+        st.dataframe(
+            display_df[['entry_time', 'exit_time', 'side', 'exit_reason', 'R', 'pnl_equity_pct']],
+            use_container_width=True,
+            height=600
+        )
+    else:
+        st.warning("No hay datos de trades.")
+
 if __name__ == "__main__":
-    init_capital_log()
-    # No es necesario lanzar nada, Streamlit corre el script
+    main()
