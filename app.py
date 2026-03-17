@@ -69,7 +69,7 @@ st.markdown("""
 # CONSTANTES
 # ============================================
 CAPITAL_LOG_FILE = "capital_log.json"
-BACKTEST_FILE = "backtest.csv"  # Este es el archivo que me mostraste
+BACKTEST_FILE = "backtest.csv"
 STATE_FILE = "state.json"
 CONFIG_FILE = "config.json"
 
@@ -180,10 +180,10 @@ def calculate_metrics(df):
     }
 
 # ============================================
-# FUNCIONES DE GRÁFICOS
+# FUNCIONES DE GRÁFICOS (CON FONDO NEGRO)
 # ============================================
 def create_equity_chart(df):
-    """Crea gráfico de evolución de capital con drawdown"""
+    """Crea gráfico de evolución de capital con drawdown (fondo negro)"""
     if df.empty:
         return go.Figure()
 
@@ -227,21 +227,22 @@ def create_equity_chart(df):
     fig.update_layout(
         height=600,
         showlegend=False,
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(30,33,48,1)',
-        font_color='white',
+        paper_bgcolor='#000000',      # Fondo exterior negro
+        plot_bgcolor='#000000',        # Fondo del área de trazado negro
+        font_color='white',             # Texto blanco
         title_font_color='white'
     )
 
-    fig.update_xaxes(gridcolor='#3d4050', gridwidth=1, linecolor='#3d4050')
-    fig.update_yaxes(gridcolor='#3d4050', gridwidth=1, linecolor='#3d4050')
-    fig.update_yaxes(title_text="Capital (USDT)", row=1, col=1)
-    fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1)
+    fig.update_xaxes(gridcolor='#3d4050', gridwidth=1, linecolor='#3d4050', tickfont=dict(color='white'))
+    fig.update_yaxes(gridcolor='#3d4050', gridwidth=1, linecolor='#3d4050', tickfont=dict(color='white'))
+    fig.update_yaxes(title_text="Capital (USDT)", row=1, col=1, title_font=dict(color='white'))
+    fig.update_yaxes(title_text="Drawdown (%)", row=2, col=1, title_font=dict(color='white'))
+    fig.update_xaxes(title_text="Fecha", row=2, col=1, title_font=dict(color='white'))
 
     return fig
 
 def create_pnl_distribution_chart(df):
-    """Crea gráfico de distribución de PnL por trade"""
+    """Crea gráfico de distribución de PnL por trade (fondo negro)"""
     if df.empty:
         return go.Figure()
 
@@ -261,15 +262,18 @@ def create_pnl_distribution_chart(df):
         xaxis_title="Número de Trade",
         yaxis_title="PnL %",
         height=400,
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(30,33,48,1)',
-        font_color='white'
+        paper_bgcolor='#000000',
+        plot_bgcolor='#000000',
+        font_color='white',
+        title_font_color='white'
     )
+    fig.update_xaxes(gridcolor='#3d4050', tickfont=dict(color='white'), title_font=dict(color='white'))
+    fig.update_yaxes(gridcolor='#3d4050', tickfont=dict(color='white'), title_font=dict(color='white'))
 
     return fig
 
 def create_exit_reason_pie(df):
-    """Crea gráfico circular de razones de salida"""
+    """Crea gráfico circular de razones de salida (fondo negro)"""
     if df.empty:
         return go.Figure()
 
@@ -284,13 +288,14 @@ def create_exit_reason_pie(df):
         hole=0.4,
         marker_colors=color_list,
         textinfo='label+percent',
-        insidetextorientation='radial'
+        insidetextorientation='radial',
+        textfont=dict(color='white')
     )])
 
     fig.update_layout(
         title="Razones de Salida",
         height=300,
-        paper_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='#000000',
         font_color='white',
         showlegend=False
     )
@@ -459,10 +464,13 @@ def show_projections():
                     title=f"Proyección {months} meses",
                     xaxis_title="Meses",
                     yaxis_title="USDT",
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(30,33,48,1)',
-                    font_color='white'
+                    paper_bgcolor='#000000',
+                    plot_bgcolor='#000000',
+                    font_color='white',
+                    title_font_color='white'
                 )
+                fig.update_xaxes(gridcolor='#3d4050', tickfont=dict(color='white'), title_font=dict(color='white'))
+                fig.update_yaxes(gridcolor='#3d4050', tickfont=dict(color='white'), title_font=dict(color='white'))
                 st.plotly_chart(fig, use_container_width=True)
 
 def show_tracking():
