@@ -1,7 +1,8 @@
 gradio==4.31.0
-pandas==2.2.3          # Versión compatible con Python 3.11
+pandas==2.2.3
 plotly==5.18.0
 python-dotenv==1.0.0
 ccxt==4.2.2
 numpy==1.26.4
-setuptools==75.8.0     # Necesario para evitar el error de pkg_resources
+setuptools==75.8.0
+huggingface-hub==0.19.4
